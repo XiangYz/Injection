@@ -160,22 +160,22 @@ HWND GetMainWindow()
 	return NULL;
 }
 
-typedef HMODULE(WINAPI *PFN_LOADLIBRARYW)(LPCWSTR);
+typedef HMODULE(WINAPI *PFN_LOADLIBRARYA)(LPCSTR);
 typedef FARPROC(WINAPI *PFN_GETPROCADDRESS)(HMODULE hModule,LPCSTR lpProcName);
 
-typedef int (WINAPI *PFN_MESSAGEBOXW)
-(HWND hWnd,LPCWSTR lpText,LPCWSTR lpCaption,UINT uType);
+typedef int (WINAPI *PFN_MESSAGEBOXA)
+(HWND hWnd,LPCSTR lpText,LPCSTR lpCaption,UINT uType);
 
 typedef struct stParam
 {
-	PFN_LOADLIBRARYW pfn_loadlibraryw;
+	PFN_LOADLIBRARYA pfn_loadlibrarya;
 	PFN_GETPROCADDRESS pfn_getproc;
 
-	WCHAR szDllName[32];
+	char szDllName[32];
 	char szProcName[32];
 
-	WCHAR szCaption[128];
-	WCHAR szContent[128];
+	char szCaption[128];
+	char szContent[128];
 
 }THREAD_PARAM, *PTHREAD_PARAM;
 
@@ -186,10 +186,10 @@ DWORD WINAPI RemoteThreadProc(LPVOID pParam)
 {
 	THREAD_PARAM param = *(PTHREAD_PARAM)pParam;
 
-	HMODULE hUser32 = param.pfn_loadlibraryw(param.szDllName);
-	PFN_MESSAGEBOXW pfn_msgboxw = (PFN_MESSAGEBOXW)param.pfn_getproc(hUser32, param.szProcName);
+	HMODULE hUser32 = param.pfn_loadlibrarya(param.szDllName);
+	PFN_MESSAGEBOXA pfn_msgboxa = (PFN_MESSAGEBOXA)param.pfn_getproc(hUser32, param.szProcName);
 
-	pfn_msgboxw(NULL, param.szCaption, param.szContent, MB_OK);
+	pfn_msgboxa(NULL, param.szCaption, param.szContent, MB_OK);
 
 	
 	
@@ -235,18 +235,18 @@ int main(int argc, char* argv[])
 
 	// 
 	HMODULE hKernelMod = GetModuleHandleW(L"Kernel32.dll");
-	param.pfn_loadlibraryw = (PFN_LOADLIBRARYW)GetProcAddress(hKernelMod, "LoadLibraryW");
+	param.pfn_loadlibrarya = (PFN_LOADLIBRARYA)GetProcAddress(hKernelMod, "LoadLibraryA");
 	param.pfn_getproc = (PFN_GETPROCADDRESS)GetProcAddress(hKernelMod, "GetProcAddress");
 
-	wchar_t dllname[] = { L"User32.dll" };
-	char procname[] = { "MessageBoxW" };
-	wchar_t cap[] = { L"codeinject" };
-	wchar_t con[] = { L"Hello" };
+	char dllname[] = { "User32.dll" };
+	char procname[] = { "MessageBoxA" };
+	char cap[] = { "codeinject" };
+	char con[] = { "Hello" };
 
-	wcscpy(param.szDllName, dllname);
+	strcpy(param.szDllName, dllname);
 	strcpy(param.szProcName, procname);
-	wcscpy(param.szCaption, cap);
-	wcscpy(param.szContent, con);
+	strcpy(param.szCaption, cap);
+	strcpy(param.szContent, con);
 
 	WriteProcessMemory(hProcess, mem_param, &param, sizeof(param), NULL);
 
