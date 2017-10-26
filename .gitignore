@@ -1,0 +1,11 @@
+*.db
+*.opendb
+*.exe
+*.pdb
+*.filters
+*.user
+Release/
+Debug/
+*/Release/
+*/Debug/
+.vs/
