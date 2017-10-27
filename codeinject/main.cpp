@@ -1,59 +1,17 @@
+/*
+整个工程用unicode，代码注入将引起目标进程崩溃，不知道为什么
+换了mbcs之后，就好了
+*/
+
+
 #include <iostream>
 #include <string>
 #include <cmath>
 #include <Windows.h>
 #include <tlhelp32.h>
 
-BOOL SetPrivilege(LPCTSTR lpszPrivilege, BOOL bEnablePrivilege)
-{
-	TOKEN_PRIVILEGES tp;
-	HANDLE hToken;
-	LUID luid;
 
-	if (!OpenProcessToken(GetCurrentProcess(),
-		TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-		&hToken))
-	{
-		std::cout << "OpenProcessToken error: " << GetLastError() << std::endl;
-		return FALSE;
-	}
-
-	if (!LookupPrivilegeValue(NULL,
-		lpszPrivilege, &luid))
-	{
-		std::cout << "LookupPrivilegeValue error: " << GetLastError() << std::endl;
-		return FALSE;
-	}
-
-	tp.PrivilegeCount = 1;
-	tp.Privileges[0].Luid = luid;
-	if (bEnablePrivilege)
-		tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-	else
-		tp.Privileges[0].Attributes = 0;
-
-
-	if (!AdjustTokenPrivileges(hToken,
-		FALSE,
-		&tp,
-		sizeof(TOKEN_PRIVILEGES),
-		NULL, NULL))
-	{
-		std::cout << "AdjustTokenPrivileges error: " << GetLastError() << std::endl;
-		return FALSE;
-	}
-
-	if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
-	{
-		std::cout << "The token does not have the specified privilege." << std::endl;
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-
-DWORD GetProcessIDFromName(LPCWSTR szName)
+DWORD GetProcessIDFromName(LPCTSTR szName)
 {
 	DWORD id = 0;       // 进程ID
 	PROCESSENTRY32 pe;  // 进程信息
@@ -63,7 +21,7 @@ DWORD GetProcessIDFromName(LPCWSTR szName)
 	{
 		do
 		{
-			if (0 == _wcsicmp(pe.szExeFile, szName)) // 不区分大小写比较
+			if (0 == stricmp(pe.szExeFile, szName)) // 不区分大小写比较
 			{
 				id = pe.th32ProcessID;
 				break;
@@ -107,7 +65,7 @@ std::string UnicodeToANSI(const std::wstring& wstr)
 }
 
 
-HANDLE GetRemoteModuleHandle(LPCWSTR module_name, DWORD pid)
+HANDLE GetRemoteModuleHandle(LPCTSTR module_name, DWORD pid)
 {
 	BOOL bFound = FALSE;
 	MODULEENTRY32 me = { sizeof(me) };
@@ -115,8 +73,8 @@ HANDLE GetRemoteModuleHandle(LPCWSTR module_name, DWORD pid)
 	BOOL bMore = Module32First(hSnap, &me);
 	for (; bMore; bMore = Module32Next(hSnap, &me))
 	{
-		if (!wcsicmp(me.szModule, module_name) ||
-			!wcsicmp(me.szExePath, module_name))
+		if (!stricmp(me.szModule, module_name) ||
+			!stricmp(me.szExePath, module_name))
 		{
 			bFound = TRUE;
 			break;
@@ -171,8 +129,8 @@ typedef struct stParam
 	PFN_LOADLIBRARYA pfn_loadlibrarya;
 	PFN_GETPROCADDRESS pfn_getproc;
 
-	char szDllName[32];
-	char szProcName[32];
+	char szDllName[128];
+	char szProcName[128];
 
 	char szCaption[128];
 	char szContent[128];
@@ -184,16 +142,65 @@ typedef struct stParam
 
 DWORD WINAPI RemoteThreadProc(LPVOID pParam)
 {
-	THREAD_PARAM param = *(PTHREAD_PARAM)pParam;
+	PTHREAD_PARAM param = (PTHREAD_PARAM)pParam;
 
-	HMODULE hUser32 = param.pfn_loadlibrarya(param.szDllName);
-	PFN_MESSAGEBOXA pfn_msgboxa = (PFN_MESSAGEBOXA)param.pfn_getproc(hUser32, param.szProcName);
+	HMODULE hUser32 = param->pfn_loadlibrarya(param->szDllName);
+	if (!hUser32) return 1;
+	PFN_MESSAGEBOXA pfn_msgboxa = (PFN_MESSAGEBOXA)param->pfn_getproc(hUser32, param->szProcName);
+	if (!pfn_msgboxa) return 1;
 
-	pfn_msgboxa(NULL, param.szCaption, param.szContent, MB_OK);
-
+	pfn_msgboxa(NULL, param->szCaption, param->szContent, MB_OK);
 	
-	
-	return 1;
+	return 0;
+}
+
+
+BOOL SetPrivilege(LPCTSTR lpszPrivilege, BOOL bEnablePrivilege)
+{
+	TOKEN_PRIVILEGES tp;
+	HANDLE hToken;
+	LUID luid;
+
+	if (!OpenProcessToken(GetCurrentProcess(),
+		TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+		&hToken))
+	{
+		std::cout << "OpenProcessToken error: " << GetLastError() << std::endl;
+		return FALSE;
+	}
+
+	if (!LookupPrivilegeValue(NULL,
+		lpszPrivilege, &luid))
+	{
+		std::cout << "LookupPrivilegeValue error: " << GetLastError() << std::endl;
+		return FALSE;
+	}
+
+	tp.PrivilegeCount = 1;
+	tp.Privileges[0].Luid = luid;
+	if (bEnablePrivilege)
+		tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+	else
+		tp.Privileges[0].Attributes = 0;
+
+
+	if (!AdjustTokenPrivileges(hToken,
+		FALSE,
+		&tp,
+		sizeof(TOKEN_PRIVILEGES),
+		NULL, NULL))
+	{
+		std::cout << "AdjustTokenPrivileges error: " << GetLastError() << std::endl;
+		return FALSE;
+	}
+
+	if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
+	{
+		std::cout << "The token does not have the specified privilege." << std::endl;
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 
@@ -207,8 +214,8 @@ int main(int argc, char* argv[])
 		exit(-1);
 	}
 
-	std::wstring w_name = ANSIToUnicode(argv[1]);
-	DWORD pid = GetProcessIDFromName(w_name.c_str());
+	
+	DWORD pid = GetProcessIDFromName(argv[1]);
 	if (pid == 0)
 	{
 		std::cout << "No such process: " << argv[1] << std::endl;
@@ -234,7 +241,7 @@ int main(int argc, char* argv[])
 	THREAD_PARAM param;
 
 	// 
-	HMODULE hKernelMod = GetModuleHandleW(L"Kernel32.dll");
+	HMODULE hKernelMod = GetModuleHandleA("Kernel32.dll");
 	param.pfn_loadlibrarya = (PFN_LOADLIBRARYA)GetProcAddress(hKernelMod, "LoadLibraryA");
 	param.pfn_getproc = (PFN_GETPROCADDRESS)GetProcAddress(hKernelMod, "GetProcAddress");
 
@@ -252,9 +259,8 @@ int main(int argc, char* argv[])
 
 
 	// 分配代码空间
-	ULONG main_addr = (ULONG)&main;
-	ULONG thr_addr = (ULONG)&RemoteThreadProc;
-	SIZE_T code_size = main_addr - thr_addr;
+
+	SIZE_T code_size = (ULONG)&SetPrivilege - (ULONG)&RemoteThreadProc;
 	void* code_mem = VirtualAllocEx(hProcess, NULL, code_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 	if (code_mem == NULL)
 	{
